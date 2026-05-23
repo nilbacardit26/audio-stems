@@ -111,30 +111,32 @@ The interactive mode uses a compact `›` prompt style and lets you choose:
 
 - first-run setup if Demucs is missing and `scripts/setup.sh` is available
 - local runtime visibility: `ffmpeg`, GPU, Demucs, optional audio-separator
-- audio/video file(s), using direct path completion, local `/` search, or global `@` search
+- audio/video file(s), using direct path completion or global `@` search
+- slash commands for help, diagnostics, optional installs, models, and presets
 - preset/model
 - output directory
 - device
 - final confirmation before processing
 
-Audio file input supports direct path completion and `@` modes:
+Audio file input supports direct path completion, `@` search, and slash commands:
 
 ```text
 /mnt/media/song.mp3   absolute path completion
 ~/Music/song.mp3      home path completion
-/demo                 indexed media search under the current folder
-/Videos               indexed media search under the current folder
 @~/Music/song.mp3     path completion
 @/mnt/media/song.mp3  absolute path completion
 @Videos               indexed media search across paths
 @beatles.*flac        regex search across audio paths
 @live.*\.wav          regex search across audio paths
+/help                 command manager and input help
+/doctor               runtime diagnostics
+/install-separator    install optional audio-separator support
+/models               list vocal-focused audio-separator models
 ```
 
-The first indexed `/` or `@` search builds an in-memory media-file index with
-`rg --files` when available. Later searches in the same interactive session
-filter that cache in memory, so terms like `/demo`, `@Videos`, and regexes like
-`@beatles.*flac` stay fast.
+The first indexed `@` search builds an in-memory media-file index with `rg --files`
+when available. Later searches in the same interactive session filter that cache
+in memory, so terms like `@Videos` and regexes like `@beatles.*flac` stay fast.
 
 While editing file or output paths:
 

@@ -4,11 +4,11 @@
 # Install user-wide command
 ./scripts/install-user-command.sh
 
-# Interactive wizard with path completion, local / search, and indexed @ search
+# Interactive wizard with path completion, indexed @ search, and / commands
 stems
 
-# In the audio prompt, press Tab after direct paths or @ searches
-# Examples: /demo, /Videos, /mnt/music/song.mp3, @Videos, @beatles.*flac
+# In the audio prompt, press Tab after direct paths, @ searches, or / commands.
+# Examples: /help, /install-separator, /mnt/music/song.mp3, @Videos
 # Use Ctrl+Left / Ctrl+Right to jump through long path segments.
 
 # Same wizard, explicit command

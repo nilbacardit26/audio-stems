@@ -97,6 +97,16 @@ AUDIO_EXTENSIONS = {
 }
 
 COMMANDS = {"separate", "interactive", "i", "doctor", "models", "presets"}
+SLASH_COMMANDS = {
+    "/help": "Show interactive help and input syntax.",
+    "/doctor": "Check ffmpeg, GPU, Demucs, and audio-separator.",
+    "/install-separator": "Install optional audio-separator/UVR support.",
+    "/models": "List vocal-focused audio-separator models.",
+    "/presets": "Show built-in separation presets.",
+    "/roots": "Show indexed search roots and current folder.",
+    "/clear": "Clear the terminal.",
+    "/quit": "Exit the interactive CLI.",
+}
 SEARCH_INDEX_TIMEOUT_SECONDS = 8
 SEARCH_INDEX_LIMIT = 50000
 SEARCH_LIMIT = 80
@@ -267,8 +277,8 @@ def cmd_separate(ns: argparse.Namespace) -> int:
 
 def cmd_interactive(_: argparse.Namespace) -> int:
     print("stems")
-    print("Type a path, / for local media search, or @ for global media search.")
-    print("Examples: /demo, /Videos, @Videos, @beatles.*flac")
+    print("Type a path, @ for media search, or / for commands.")
+    print("Examples: @Videos, @beatles.*flac, /help, /install-separator")
     print("Press Ctrl-C to cancel.")
 
     try:
@@ -533,9 +543,123 @@ def ask_input_files() -> list[Path]:
         if not value and files:
             return files
 
+        if is_slash_command_input(value):
+            result = run_slash_command(value)
+            if result == "quit":
+                raise KeyboardInterrupt
+            continue
+
         path = parse_at_path(value)
         files.append(path)
         print(f"Added: {path}")
+
+
+def is_slash_command_input(value: str) -> bool:
+    text = value.strip()
+    return text.startswith("/") and "/" not in text[1:]
+
+
+def run_slash_command(value: str) -> str:
+    command = value.strip().lower()
+    if command == "/":
+        print_interactive_help()
+        return "continue"
+    if command not in SLASH_COMMANDS:
+        print(f"Unknown command: {value}")
+        print("Type /help to see available commands.")
+        return "continue"
+
+    if command == "/help":
+        print_interactive_help()
+    elif command == "/doctor":
+        cmd_doctor(argparse.Namespace())
+    elif command == "/install-separator":
+        install_audio_separator()
+    elif command == "/models":
+        cmd_models(argparse.Namespace(filter="vocals", limit=25))
+    elif command == "/presets":
+        cmd_presets(argparse.Namespace())
+    elif command == "/roots":
+        print_search_roots()
+    elif command == "/clear":
+        os.system("clear")
+    elif command == "/quit":
+        return "quit"
+
+    return "continue"
+
+
+def print_interactive_help() -> None:
+    print("\nInteractive commands")
+    width = max(len(command) for command in SLASH_COMMANDS)
+    for command, description in SLASH_COMMANDS.items():
+        print(f"  {command:<{width}}  {description}")
+
+    print("\nFile input")
+    print("  @Videos          search indexed media paths")
+    print("  @beatles.*flac   regex search indexed media paths")
+    print("  @/mnt/song.mp3   path completion with @ prefix")
+    print("  ~/Music/song.mp3 home path completion")
+    print("  ./song.mp3       relative path completion")
+    print("\nEditing")
+    print("  Ctrl+Left        jump to previous path segment")
+    print("  Ctrl+Right       jump to next path segment")
+
+
+def print_search_roots() -> None:
+    configured = os.environ.get("STEMS_SEARCH_ROOTS")
+    print("\nSearch roots")
+    print(f"  current folder: {Path.cwd()}")
+    if configured:
+        print(f"  global @ roots: {configured}")
+    else:
+        print("  global @ roots: /")
+    print("  Configure with STEMS_SEARCH_ROOTS=/music:/media")
+
+
+def install_audio_separator() -> None:
+    status = collect_runtime_status()
+    if status.audio_separator:
+        print(f"audio-separator is already installed: {status.audio_separator}")
+        return
+
+    print_audio_separator_hint(status)
+    if not ask_confirm("Install audio-separator now?", default=True):
+        print("Install skipped.")
+        return
+
+    if status.setup_script:
+        command = [str(status.setup_script), "--full"]
+        cwd = status.setup_script.parent.parent
+    else:
+        command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "audio-stems[all] @ git+https://github.com/nilbacardit26/audio-stems.git",
+        ]
+        cwd = None
+
+    print("\nRunning:")
+    print_command(command)
+    completed = subprocess.run(command, check=False, cwd=cwd)
+    if completed.returncode != 0:
+        print("audio-separator install failed.", file=sys.stderr)
+        return
+
+    if status.setup_script:
+        venv_bin = status.setup_script.parent.parent / ".venv" / "bin"
+        if venv_bin.exists():
+            os.environ["PATH"] = f"{venv_bin}{os.pathsep}{os.environ.get('PATH', '')}"
+
+    refreshed = collect_runtime_status()
+    if refreshed.audio_separator:
+        print(f"audio-separator installed: {refreshed.audio_separator}")
+        print("Run: stems models --filter vocals")
+    else:
+        print("Install completed, but audio-separator is not visible in PATH.")
 
 
 def ask_preset() -> str:
@@ -670,7 +794,6 @@ def parse_at_path(value: str) -> Path:
 
 
 MEDIA_INDEX: MediaFileIndex | None = None
-LOCAL_MEDIA_INDEXES: dict[Path, MediaFileIndex] = {}
 
 
 class MediaPathCompleter(Completer):
@@ -686,8 +809,8 @@ class MediaPathCompleter(Completer):
         text = document.text_before_cursor
         marker = text.rfind("@")
         if marker == -1:
-            if not self.only_directories and should_use_local_search(text):
-                yield from local_media_completions(text[1:], start_position=-len(text))
+            if should_complete_slash_commands(text):
+                yield from slash_command_completions(text)
                 return
             if should_use_plain_path_completion(text):
                 yield from self.path_completions(text, complete_event)
@@ -720,8 +843,20 @@ def should_use_plain_path_completion(fragment: str) -> bool:
     return fragment.startswith(("/", "~", ".", "$")) or "/" in fragment
 
 
-def should_use_local_search(fragment: str) -> bool:
-    return fragment.startswith("/") and not fragment.startswith("//") and "/" not in fragment[1:]
+def should_complete_slash_commands(fragment: str) -> bool:
+    return fragment.startswith("/") and "/" not in fragment[1:]
+
+
+def slash_command_completions(fragment: str) -> Iterable[Completion]:
+    query = fragment.lower()
+    for command, description in SLASH_COMMANDS.items():
+        if command.startswith(query):
+            yield Completion(
+                command,
+                start_position=-len(fragment),
+                display=command,
+                display_meta=description,
+            )
 
 
 def should_use_system_search(fragment: str) -> bool:
@@ -744,28 +879,11 @@ def indexed_media_completions(pattern: str) -> Iterable[Completion]:
         )
 
 
-def local_media_completions(pattern: str, start_position: int) -> Iterable[Completion]:
-    for path in local_media_index(Path.cwd()).search(pattern):
-        yield Completion(
-            str(path),
-            start_position=start_position,
-            display=path.name,
-            display_meta=str(path.parent),
-        )
-
-
 def media_index() -> MediaFileIndex:
     global MEDIA_INDEX
     if MEDIA_INDEX is None:
         MEDIA_INDEX = MediaFileIndex()
     return MEDIA_INDEX
-
-
-def local_media_index(root: Path) -> MediaFileIndex:
-    resolved = root.resolve()
-    if resolved not in LOCAL_MEDIA_INDEXES:
-        LOCAL_MEDIA_INDEXES[resolved] = MediaFileIndex([resolved])
-    return LOCAL_MEDIA_INDEXES[resolved]
 
 
 class MediaFileIndex:
@@ -965,6 +1083,8 @@ def file_filter(path: str) -> bool:
 
 class ExistingAudioPathValidator(Validator):
     def validate(self, document: Document) -> None:
+        if is_slash_command_input(document.text):
+            return
         path = parse_at_path(document.text)
         validate_existing_audio_path(path, document)
 
@@ -972,6 +1092,8 @@ class ExistingAudioPathValidator(Validator):
 class OptionalExistingAudioPathValidator(Validator):
     def validate(self, document: Document) -> None:
         if not document.text.strip():
+            return
+        if is_slash_command_input(document.text):
             return
         path = parse_at_path(document.text)
         validate_existing_audio_path(path, document)
