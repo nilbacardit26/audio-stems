@@ -22,6 +22,7 @@ from prompt_toolkit.completion import (
 )
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.filters import has_completions
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 from prompt_toolkit.validation import ValidationError, Validator
@@ -44,6 +45,12 @@ class RuntimeStatus:
     uv: str | None
     setup_script: Path | None
     gpu_summary: str | None
+
+
+@dataclass(frozen=True)
+class SearchMatch:
+    path: Path
+    is_directory: bool
 
 
 PRESETS: dict[str, Preset] = {
@@ -181,6 +188,21 @@ def _(event: object) -> None:
 @PATH_KEY_BINDINGS.add("c-right", eager=True)
 def _(event: object) -> None:
     jump_to_next_path_segment(event.current_buffer)
+
+
+@PATH_KEY_BINDINGS.add("down", filter=has_completions, eager=True)
+def _(event: object) -> None:
+    select_completion_without_applying(event.current_buffer, step=1)
+
+
+@PATH_KEY_BINDINGS.add("up", filter=has_completions, eager=True)
+def _(event: object) -> None:
+    select_completion_without_applying(event.current_buffer, step=-1)
+
+
+@PATH_KEY_BINDINGS.add("right", filter=has_completions, eager=True)
+def _(event: object) -> None:
+    accept_selected_completion(event.current_buffer)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -628,10 +650,13 @@ def print_interactive_help() -> None:
     print("  @Videos          search indexed media paths")
     print("  @kill            case-insensitive media search")
     print("  @Music.*kill     case-insensitive regex search")
+    print("  @/Music/kill     regex search inside a selected folder")
     print("  @/mnt/song.mp3   path completion with @ prefix")
     print("  ~/Music/song.mp3 home path completion")
     print("  ./song.mp3       relative path completion")
     print("\nEditing")
+    print("  Up/Down          move through completion results without accepting them")
+    print("  Right            accept the highlighted completion")
     print("  Ctrl+Left        jump to previous path segment")
     print("  Ctrl+Right       jump to next path segment")
 
@@ -838,6 +863,31 @@ def jump_to_next_path_segment(buffer: object) -> None:
     buffer.cursor_position = slash + 1 if slash >= 0 else len(text)
 
 
+def select_completion_without_applying(buffer: object, step: int) -> None:
+    state = buffer.complete_state
+    if not state or not state.completions:
+        return
+
+    current = state.complete_index
+    if current is None:
+        next_index = 0 if step > 0 else len(state.completions) - 1
+    else:
+        next_index = (current + step) % len(state.completions)
+
+    state.go_to_index(next_index)
+    buffer.set_document(state.original_document)
+    buffer.complete_state = state
+
+
+def accept_selected_completion(buffer: object) -> None:
+    state = buffer.complete_state
+    if not state or not state.completions:
+        return
+
+    index = state.complete_index if state.complete_index is not None else 0
+    buffer.apply_completion(state.completions[index])
+
+
 def path_prefix_offset(text: str) -> int:
     return 1 if text.startswith("@") else 0
 
@@ -850,6 +900,7 @@ def parse_at_path(value: str) -> Path:
 
 
 MEDIA_INDEX: MediaFileIndex | None = None
+SCOPED_MEDIA_INDEXES: dict[tuple[str, ...], MediaFileIndex] = {}
 
 
 class MediaPathCompleter(Completer):
@@ -873,6 +924,13 @@ class MediaPathCompleter(Completer):
             return
 
         path_fragment = text[marker + 1 :]
+        scoped_search = split_scoped_search(path_fragment)
+        if not self.only_directories and scoped_search:
+            base, query = scoped_search
+            if should_use_scoped_search(query):
+                yield from scoped_media_completions(base, query)
+                return
+
         if not self.only_directories and should_use_system_search(path_fragment):
             yield from indexed_media_completions(path_fragment)
             return
@@ -925,14 +983,69 @@ def should_use_system_search(fragment: str) -> bool:
     return len(fragment) >= 2
 
 
+def should_use_scoped_search(query: str) -> bool:
+    return len(query.strip()) >= 2
+
+
+def split_scoped_search(fragment: str) -> tuple[Path, str] | None:
+    if "/" not in fragment:
+        return None
+
+    for slash_index in range(len(fragment) - 1, -1, -1):
+        if fragment[slash_index] != "/":
+            continue
+
+        base_text = fragment[:slash_index] or "/"
+        query = fragment[slash_index + 1 :]
+        base = Path(os.path.expandvars(os.path.expanduser(base_text))).resolve()
+        if base.is_dir():
+            return base, query
+
+    return None
+
+
 def indexed_media_completions(pattern: str) -> Iterable[Completion]:
-    for path in media_index().search(pattern):
+    for match in media_index().search_matches(pattern, include_directories=True):
+        text = completion_text_for_path(match.path, match.is_directory)
         yield Completion(
-            str(path),
+            text,
             start_position=-len(pattern),
-            display=path.name,
-            display_meta=str(path.parent),
+            display=completion_display_for_path(match.path, match.is_directory),
+            display_meta=str(match.path.parent),
         )
+
+
+def scoped_media_completions(base: Path, query: str) -> Iterable[Completion]:
+    for match in media_index_for_roots([base]).search_matches(query, include_directories=True):
+        if match.path == base:
+            continue
+        try:
+            relative = match.path.relative_to(base)
+        except ValueError:
+            continue
+
+        text = os.fspath(relative)
+        if match.is_directory:
+            text = f"{text}{os.sep}"
+
+        yield Completion(
+            text,
+            start_position=-len(query),
+            display=completion_display_for_path(relative, match.is_directory),
+            display_meta=str(match.path.parent),
+        )
+
+
+def completion_text_for_path(path: Path, is_directory: bool) -> str:
+    text = str(path)
+    return f"{text}{os.sep}" if is_directory else text
+
+
+def completion_display_for_path(path: Path, is_directory: bool) -> str:
+    name = os.fspath(path)
+    if isinstance(path, Path):
+        name = path.name or os.fspath(path)
+    return f"{name}{os.sep}" if is_directory else name
 
 
 def media_index() -> MediaFileIndex:
@@ -942,32 +1055,50 @@ def media_index() -> MediaFileIndex:
     return MEDIA_INDEX
 
 
+def media_index_for_roots(roots: Sequence[Path]) -> MediaFileIndex:
+    resolved_roots = dedupe_existing_roots(roots)
+    key = tuple(str(root) for root in resolved_roots)
+    if key not in SCOPED_MEDIA_INDEXES:
+        SCOPED_MEDIA_INDEXES[key] = MediaFileIndex(resolved_roots)
+    return SCOPED_MEDIA_INDEXES[key]
+
+
 class MediaFileIndex:
     def __init__(self, roots: Sequence[Path] | None = None) -> None:
         self.roots = roots
         self.paths: list[Path] | None = None
+        self.loaded_roots: list[Path] | None = None
+        self.directories: list[Path] | None = None
 
     def search(self, pattern: str) -> list[Path]:
+        return [match.path for match in self.search_matches(pattern, include_directories=False)]
+
+    def search_matches(self, pattern: str, include_directories: bool) -> list[SearchMatch]:
         paths = self.load()
+        candidates = [SearchMatch(path, False) for path in paths]
+        if include_directories:
+            candidates.extend(SearchMatch(path, True) for path in self.directory_paths())
+
         if not pattern.strip():
-            return sorted(paths, key=lambda path: str(path).lower())[:SEARCH_LIMIT]
+            return sorted(candidates, key=search_match_sort_key)[:SEARCH_LIMIT]
 
         regex = compile_search_regex(pattern)
-        scored: list[tuple[int, str, Path]] = []
-        for path in paths:
-            score = score_media_path(path, pattern, regex)
+        scored: list[tuple[int, int, str, SearchMatch]] = []
+        for match in candidates:
+            score = score_media_path(match.path, pattern, regex)
             if score <= 0:
                 continue
-            scored.append((score, str(path).lower(), path))
+            scored.append((score, 0 if match.is_directory else 1, str(match.path).lower(), match))
 
-        scored.sort(key=lambda item: (-item[0], item[1]))
-        return [path for _, _, path in scored[:SEARCH_LIMIT]]
+        scored.sort(key=lambda item: (-item[0], item[1], item[2]))
+        return [match for _, _, _, match in scored[:SEARCH_LIMIT]]
 
     def load(self) -> list[Path]:
         if self.paths is not None:
             return self.paths
 
         roots = dedupe_existing_roots(self.roots) if self.roots else search_roots()
+        self.loaded_roots = roots
         rg = shutil.which("rg")
         if rg:
             paths = index_media_files_with_rg(rg, roots)
@@ -976,6 +1107,37 @@ class MediaFileIndex:
 
         self.paths = paths
         return paths
+
+    def directory_paths(self) -> list[Path]:
+        if self.directories is not None:
+            return self.directories
+
+        paths = self.load()
+        roots = self.loaded_roots or []
+        directories: set[Path] = set()
+        for path in paths:
+            for parent in path.parents:
+                if parent == Path("/"):
+                    continue
+                if any(path_is_relative_to(parent, root) for root in roots):
+                    directories.add(parent)
+                else:
+                    break
+
+        self.directories = sorted(directories, key=lambda path: str(path).lower())
+        return self.directories
+
+
+def search_match_sort_key(match: SearchMatch) -> tuple[int, str]:
+    return (0 if match.is_directory else 1, str(match.path).lower())
+
+
+def path_is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 def compile_search_regex(pattern: str) -> re.Pattern[str] | None:

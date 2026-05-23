@@ -128,6 +128,7 @@ Audio file input supports direct path completion, `@` search, and slash commands
 @Videos               indexed media search across paths
 @kill                 case-insensitive media search
 @Music.*kill          case-insensitive regex search across audio paths
+@/Music/kill          case-insensitive regex search inside a selected folder
 @live.*\.wav          case-insensitive regex search across audio paths
 /help                 command manager and input help
 /doctor               runtime diagnostics
@@ -137,11 +138,14 @@ Audio file input supports direct path completion, `@` search, and slash commands
 
 The first indexed `@` search builds an in-memory media-file index with `rg --files`
 when available. Later searches in the same interactive session filter that cache
-in memory, so terms like `@Videos` and regexes like `@beatles.*flac` stay fast.
+in memory, so terms like `@kill`, regexes like `@Music.*kill`, and scoped searches
+like `@/Music/kill` stay fast.
 
 While editing file or output paths:
 
 ```text
+Up/Down     move through completion results without accepting them
+Right       accept the highlighted completion
 Ctrl+Left   jump to the previous path segment
 Ctrl+Right  jump to the next path segment
 ```

@@ -8,7 +8,8 @@
 stems
 
 # In the audio prompt, press Tab after direct paths, @ searches, or / commands.
-# Examples: /help, /install-separator, /mnt/music/song.mp3, @Videos
+# Examples: /help, /install-separator, /mnt/music/song.mp3, @kill, @Music.*kill
+# Up/Down moves through results; Right accepts the highlighted result.
 # Use Ctrl+Left / Ctrl+Right to jump through long path segments.
 
 # Same wizard, explicit command
