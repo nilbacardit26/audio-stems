@@ -74,6 +74,34 @@ PRESETS: dict[str, Preset] = {
         description="audio-separator/UVR model selected with --separator-model.",
     ),
 }
+PRESET_ORDER = ("demucs", "fast", "vocals", "six", "separator")
+
+SEPARATOR_MODEL_CHOICES = (
+    (
+        "inst-hq",
+        "UVR-MDX-NET-Inst_HQ_3.onnx",
+        "vocal/instrumental split, good first UVR choice",
+    ),
+    (
+        "voc-ft",
+        "UVR-MDX-NET-Voc_FT.onnx",
+        "vocal-focused MDX model",
+    ),
+    (
+        "bs-roformer",
+        "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        "stronger RoFormer vocal/instrumental model",
+    ),
+)
+SEPARATOR_MODEL_ALIASES: dict[str, str] = {
+    alias: filename for alias, filename, _ in SEPARATOR_MODEL_CHOICES
+}
+SEPARATOR_MODEL_ALIASES.update(
+    {str(index): filename for index, (_, filename, _) in enumerate(SEPARATOR_MODEL_CHOICES, 1)}
+)
+SEPARATOR_MODEL_ALIASES.update(
+    {filename.lower(): filename for _, filename, _ in SEPARATOR_MODEL_CHOICES}
+)
 
 AUDIO_EXTENSIONS = {
     ".aac",
@@ -204,7 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     separate.add_argument(
         "--separator-model",
-        help="audio-separator model filename, for example UVR-MDX-NET-Inst_HQ_3.onnx.",
+        help="audio-separator model filename or alias, for example inst-hq.",
     )
     separate.add_argument(
         "--model-dir",
@@ -374,10 +402,11 @@ def build_separator_command(ns: argparse.Namespace) -> list[str]:
             "Run `stems models --filter vocals` to inspect choices."
         )
 
+    separator_model = resolve_separator_model(ns.separator_model)
     command = [
         "audio-separator",
         "--model_filename",
-        ns.separator_model,
+        separator_model,
         "--output_dir",
         str(ns.out),
         "--model_file_dir",
@@ -664,17 +693,21 @@ def install_audio_separator() -> None:
 
 def ask_preset() -> str:
     print("\nPresets")
-    for name, preset in sorted(PRESETS.items()):
-        print(f"  {name:<9} {preset.description}")
+    preset_aliases = {name: name for name in PRESET_ORDER}
+    preset_aliases.update({str(index): name for index, name in enumerate(PRESET_ORDER, 1)})
+    for index, name in enumerate(PRESET_ORDER, 1):
+        preset = PRESETS[name]
+        default = " (default)" if name == "demucs" else ""
+        print(f"  {index}. {name:<9} {preset.description}{default}")
 
     value = prompt(
         prompt_label("Preset [demucs]"),
-        completer=WordCompleter(sorted(PRESETS), ignore_case=True),
-        validator=OptionalChoiceValidator(PRESETS),
+        completer=WordCompleter(PRESET_ORDER, ignore_case=True),
+        validator=OptionalChoiceValidator(preset_aliases),
         complete_while_typing=True,
         style=CODEX_STYLE,
     ).strip().lower()
-    return value or "demucs"
+    return preset_aliases.get(value, "demucs")
 
 
 def ask_output_dir() -> Path:
@@ -713,21 +746,43 @@ def ask_output_format() -> str:
 
 
 def ask_separator_model() -> str:
-    print("\naudio-separator models are selected by filename.")
-    print("Run `stems models --filter vocals` in another terminal if you want the full list.")
-    suggestions = (
-        "UVR-MDX-NET-Inst_HQ_3.onnx",
-        "UVR-MDX-NET-Voc_FT.onnx",
-        "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
-    )
-    return prompt(
-        prompt_label("Separator model"),
+    print("\naudio-separator model")
+    print("Choose one of the common models, or type a full model filename.")
+    for index, (alias, filename, description) in enumerate(SEPARATOR_MODEL_CHOICES, 1):
+        default = " (default)" if index == 1 else ""
+        print(f"  {index}. {alias:<11} {description}{default}")
+        print(f"     {filename}")
+
+    suggestions = [
+        *[alias for alias, _, _ in SEPARATOR_MODEL_CHOICES],
+        *[filename for _, filename, _ in SEPARATOR_MODEL_CHOICES],
+        "custom",
+    ]
+    value = prompt(
+        prompt_label("Separator model [inst-hq]"),
         default="",
         completer=FuzzyCompleter(WordCompleter(suggestions, ignore_case=True)),
-        validator=NonEmptyValidator("Model filename is required."),
         complete_while_typing=True,
         style=CODEX_STYLE,
     ).strip()
+    if not value:
+        return SEPARATOR_MODEL_CHOICES[0][1]
+
+    key = value.lower()
+    if key == "custom":
+        return prompt(
+            prompt_label("Model filename"),
+            completer=FuzzyCompleter(WordCompleter(suggestions[:-1], ignore_case=True)),
+            validator=NonEmptyValidator("Model filename is required."),
+            complete_while_typing=True,
+            style=CODEX_STYLE,
+        ).strip()
+
+    return resolve_separator_model(value)
+
+
+def resolve_separator_model(value: str) -> str:
+    return SEPARATOR_MODEL_ALIASES.get(value.strip().lower(), value.strip())
 
 
 def ask_confirm(message: str, default: bool) -> bool:
@@ -1191,8 +1246,11 @@ def cmd_models(ns: argparse.Namespace) -> int:
 
 def cmd_presets(_: argparse.Namespace) -> int:
     width = max(len(name) for name in PRESETS)
-    for name, preset in sorted(PRESETS.items()):
-        print(f"{name:<{width}}  {preset.description}")
+    for index, name in enumerate(PRESET_ORDER, 1):
+        preset = PRESETS[name]
+        print(f"{index}. {name:<{width}}  {preset.description}")
+    print("\nIn interactive mode, choose by number or name.")
+    print("The separator preset opens a short model picker with common UVR/RoFormer choices.")
     return 0
 
 

@@ -14,6 +14,9 @@ stems
 # Same wizard, explicit command
 stems interactive
 
+# Show the built-in preset menu
+stems presets
+
 # Recommended default
 stems ~/Music/song.mp3
 
@@ -35,5 +38,8 @@ stems models --filter vocals
 # Run one audio-separator model
 stems ~/Music/song.mp3 \
   --preset separator \
-  --separator-model model_bs_roformer_ep_317_sdr_12.9755.ckpt
+  --separator-model bs-roformer
+
+# In interactive mode, the separator preset lets you choose common model aliases:
+# inst-hq, voc-ft, or bs-roformer.
 ```

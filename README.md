@@ -113,7 +113,7 @@ The interactive mode uses a compact `›` prompt style and lets you choose:
 - local runtime visibility: `ffmpeg`, GPU, Demucs, optional audio-separator
 - audio/video file(s), using direct path completion or global `@` search
 - slash commands for help, diagnostics, optional installs, models, and presets
-- preset/model
+- preset/model, chosen by number or short name
 - output directory
 - device
 - final confirmation before processing
@@ -176,6 +176,12 @@ stems song.mp3 --preset vocals      # vocals + no_vocals
 stems song.mp3 --preset six         # experimental vocals/drums/bass/other/guitar/piano
 ```
 
+In interactive mode, `stems` shows the same basic choices as a numbered menu:
+`demucs`, `fast`, `vocals`, `six`, and `separator`. Pick by number or by name.
+If you choose `separator`, the CLI opens a short model picker with common aliases
+like `inst-hq`, `voc-ft`, and `bs-roformer`; you can still paste a full
+audio-separator model filename when you want a specific model.
+
 Outputs go to `separated/` by default.
 
 ## Optional audio-separator setup
@@ -200,14 +206,17 @@ stems models --filter vocals
 Then run a specific model:
 
 ```bash
-stems song.mp3 --preset separator --separator-model UVR-MDX-NET-Inst_HQ_3.onnx
+stems song.mp3 --preset separator --separator-model inst-hq
 ```
 
-Or a stronger BS-RoFormer vocal/instrumental example:
+Or use a stronger BS-RoFormer vocal/instrumental example:
 
 ```bash
-stems song.mp3 --preset separator --separator-model model_bs_roformer_ep_317_sdr_12.9755.ckpt
+stems song.mp3 --preset separator --separator-model bs-roformer
 ```
+
+The built-in separator aliases expand to real model filenames. You can still pass
+the full filename directly, for example `UVR-MDX-NET-Inst_HQ_3.onnx`.
 
 The audio-separator package downloads selected model weights automatically into
 `models/audio-separator/`.
