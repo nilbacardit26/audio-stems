@@ -455,6 +455,22 @@ def print_runtime_summary(status: RuntimeStatus) -> None:
     print(f"  Demucs:          {status.demucs or 'missing'}")
     print(f"  audio-separator: {status.audio_separator or 'optional, not installed'}")
     print(f"  setup script:    {status.setup_script or 'not found'}")
+    if not status.audio_separator:
+        print_audio_separator_hint(status)
+
+
+def print_audio_separator_hint(status: RuntimeStatus) -> None:
+    print("\nOptional engine")
+    print("  audio-separator adds UVR/MDX/RoFormer model support.")
+    print("  Useful for stronger vocal/instrumental experiments.")
+    print("  Install:")
+    if status.setup_script:
+        print("    ./scripts/setup.sh --full")
+    else:
+        print("    python3 -m pip install --user --upgrade \\")
+        print('      "audio-stems[all] @ git+https://github.com/nilbacardit26/audio-stems.git"')
+    print("  Then:")
+    print("    stems models --filter vocals")
 
 
 def find_setup_script() -> Path | None:

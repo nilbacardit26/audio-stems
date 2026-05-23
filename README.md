@@ -180,9 +180,18 @@ Outputs go to `separated/` by default.
 
 Install the optional engine when you want to try UVR/MDX/RoFormer models:
 
+From a source checkout:
+
 ```bash
 ./scripts/setup.sh --full
-source .venv/bin/activate
+stems models --filter vocals
+```
+
+From the GitHub/pip install:
+
+```bash
+python3 -m pip install --user --upgrade \
+  "audio-stems[all] @ git+https://github.com/nilbacardit26/audio-stems.git"
 stems models --filter vocals
 ```
 
