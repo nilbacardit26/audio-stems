@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "audio-stems"
+version = "0.1.0"
+description = "Local CLI wrapper for neural audio stem separation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "prompt-toolkit>=3.0.43",
+]
+
+[project.optional-dependencies]
+demucs = [
+  "demucs>=4.0.1",
+  "torchcodec>=0.1",
+]
+separator = [
+  "audio-separator[gpu]>=0.38",
+]
+all = [
+  "demucs>=4.0.1",
+  "torchcodec>=0.1",
+  "audio-separator[gpu]>=0.38",
+]
+
+[project.scripts]
+stems = "audio_stems.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/audio_stems"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

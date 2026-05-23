@@ -1,0 +1,30 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local audio inputs/outputs and model caches
+input/
+inputs/
+output/
+outputs/
+separated/
+models/
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.opus
+*.ckpt
+*.onnx
+*.pth
+*.th
+
+# Local editor/system files
+.DS_Store
+.idea/
+.vscode/
