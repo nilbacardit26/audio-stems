@@ -126,8 +126,9 @@ Audio file input supports direct path completion, `@` search, and slash commands
 @~/Music/song.mp3     path completion
 @/mnt/media/song.mp3  absolute path completion
 @Videos               indexed media search across paths
-@beatles.*flac        regex search across audio paths
-@live.*\.wav          regex search across audio paths
+@kill                 case-insensitive media search
+@Music.*kill          case-insensitive regex search across audio paths
+@live.*\.wav          case-insensitive regex search across audio paths
 /help                 command manager and input help
 /doctor               runtime diagnostics
 /install-separator    install optional audio-separator support

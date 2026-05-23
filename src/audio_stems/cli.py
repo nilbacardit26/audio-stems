@@ -306,7 +306,7 @@ def cmd_separate(ns: argparse.Namespace) -> int:
 def cmd_interactive(_: argparse.Namespace) -> int:
     print("stems")
     print("Type a path, @ for media search, or / for commands.")
-    print("Examples: @Videos, @beatles.*flac, /help, /install-separator")
+    print("Examples: @kill, @Music.*kill, /help, /install-separator")
     print("Press Ctrl-C to cancel.")
 
     try:
@@ -626,7 +626,8 @@ def print_interactive_help() -> None:
 
     print("\nFile input")
     print("  @Videos          search indexed media paths")
-    print("  @beatles.*flac   regex search indexed media paths")
+    print("  @kill            case-insensitive media search")
+    print("  @Music.*kill     case-insensitive regex search")
     print("  @/mnt/song.mp3   path completion with @ prefix")
     print("  ~/Music/song.mp3 home path completion")
     print("  ./song.mp3       relative path completion")
@@ -1074,7 +1075,7 @@ def index_media_files_with_rg(rg: str, roots: Sequence[Path]) -> list[Path]:
     for directory in sorted(SEARCH_EXCLUDE_DIRS):
         command.extend(["--glob", f"!{directory}/**"])
     for extension in sorted(AUDIO_EXTENSIONS):
-        command.extend(["--glob", f"*{extension}", "--glob", f"*{extension.upper()}"])
+        command.extend(["--iglob", f"*{extension}"])
     command.extend(str(root) for root in roots)
 
     try:
