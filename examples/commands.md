@@ -8,8 +8,9 @@
 stems
 
 # In the audio prompt, press Tab after direct paths, @ searches, or / commands.
-# Examples: /help, /install-separator, /mnt/music/song.mp3, @kill, @Music.*kill
+# Examples: /help, /reindex, /install-separator, /mnt/music/song.mp3, @kill, @Music.*kill
 # Up/Down moves through results; Right accepts the highlighted result.
+# By default @ searches under $HOME and caches results in ~/.cache/audio-stems.
 # Use Ctrl+Left / Ctrl+Right to jump through long path segments.
 
 # Same wizard, explicit command

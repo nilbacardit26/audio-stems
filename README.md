@@ -134,12 +134,14 @@ Audio file input supports direct path completion, `@` search, and slash commands
 /doctor               runtime diagnostics
 /install-separator    install optional audio-separator support
 /models               list vocal-focused audio-separator models
+/reindex              refresh the persistent @ search cache
 ```
 
-The first indexed `@` search builds an in-memory media-file index with `rg --files`
-when available. Later searches in the same interactive session filter that cache
-in memory, so terms like `@kill`, regexes like `@Music.*kill`, and scoped searches
-like `@/Music/kill` stay fast.
+By default, indexed `@` search scans `$HOME`, not the whole filesystem. The first
+search builds a persistent media-file cache in `~/.cache/audio-stems` with
+`rg --files` when available. Later searches load that cache and filter it in
+memory, so terms like `@kill`, regexes like `@Music.*kill`, and scoped searches
+like `@/Music/kill` stay fast. Run `/reindex` when you add or move music files.
 
 While editing file or output paths:
 
@@ -150,7 +152,6 @@ Ctrl+Left   jump to the previous path segment
 Ctrl+Right  jump to the next path segment
 ```
 
-By default, `@` indexed search scans `/` while excluding noisy system/cache folders.
 To customize search roots:
 
 ```bash

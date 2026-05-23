@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -9,7 +11,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import (
@@ -139,12 +141,16 @@ SLASH_COMMANDS = {
     "/models": "List vocal-focused audio-separator models.",
     "/presets": "Show built-in separation presets.",
     "/roots": "Show indexed search roots and current folder.",
+    "/reindex": "Refresh the persistent @ media search cache.",
     "/clear": "Clear the terminal.",
     "/quit": "Exit the interactive CLI.",
 }
 SEARCH_INDEX_TIMEOUT_SECONDS = 8
 SEARCH_INDEX_LIMIT = 50000
 SEARCH_LIMIT = 80
+SEARCH_DEBOUNCE_SECONDS = 0.15
+SEARCH_CACHE_VERSION = 1
+CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "audio-stems"
 SEARCH_EXCLUDE_DIRS = {
     ".cache",
     ".git",
@@ -632,6 +638,8 @@ def run_slash_command(value: str) -> str:
         cmd_presets(argparse.Namespace())
     elif command == "/roots":
         print_search_roots()
+    elif command == "/reindex":
+        reindex_media_search()
     elif command == "/clear":
         os.system("clear")
     elif command == "/quit":
@@ -668,8 +676,16 @@ def print_search_roots() -> None:
     if configured:
         print(f"  global @ roots: {configured}")
     else:
-        print("  global @ roots: /")
+        print(f"  global @ roots: {Path.home()} (default)")
+    print(f"  cache: {CACHE_DIR}")
     print("  Configure with STEMS_SEARCH_ROOTS=/music:/media")
+
+
+def reindex_media_search() -> None:
+    print("\nRefreshing @ media search cache...")
+    clear_media_indexes(remove_disk_cache=True)
+    paths = media_index().refresh()
+    print(f"Indexed {len(paths)} media files.")
 
 
 def install_audio_separator() -> None:
@@ -906,6 +922,8 @@ SCOPED_MEDIA_INDEXES: dict[tuple[str, ...], MediaFileIndex] = {}
 class MediaPathCompleter(Completer):
     def __init__(self, only_directories: bool) -> None:
         self.only_directories = only_directories
+        self.last_query = ""
+        self.last_query_at = 0.0
         self.path_completer = PathCompleter(
             only_directories=only_directories,
             expanduser=True,
@@ -928,11 +946,19 @@ class MediaPathCompleter(Completer):
         if not self.only_directories and scoped_search:
             base, query = scoped_search
             if should_use_scoped_search(query):
-                yield from scoped_media_completions(base, query)
+                yield from self.debounced_search(
+                    f"scoped:{base}:{query}",
+                    complete_event,
+                    lambda: list(scoped_media_completions(base, query)),
+                )
                 return
 
         if not self.only_directories and should_use_system_search(path_fragment):
-            yield from indexed_media_completions(path_fragment)
+            yield from self.debounced_search(
+                f"global:{path_fragment}",
+                complete_event,
+                lambda: list(indexed_media_completions(path_fragment)),
+            )
             return
 
         yield from self.path_completions(path_fragment, complete_event)
@@ -949,6 +975,26 @@ class MediaPathCompleter(Completer):
                 style=completion.style,
                 selected_style=completion.selected_style,
             )
+
+    def debounced_search(
+        self,
+        query_key: str,
+        complete_event: object,
+        search: Callable[[], list[Completion]],
+    ) -> Iterable[Completion]:
+        now = time.monotonic()
+        completion_requested = bool(getattr(complete_event, "completion_requested", False))
+        if (
+            not completion_requested
+            and query_key != self.last_query
+            and now - self.last_query_at < SEARCH_DEBOUNCE_SECONDS
+        ):
+            return
+
+        completions = search()
+        self.last_query = query_key
+        self.last_query_at = now
+        yield from completions
 
 
 def should_use_plain_path_completion(fragment: str) -> bool:
@@ -1055,6 +1101,14 @@ def media_index() -> MediaFileIndex:
     return MEDIA_INDEX
 
 
+def clear_media_indexes(*, remove_disk_cache: bool = False) -> None:
+    global MEDIA_INDEX
+    MEDIA_INDEX = None
+    SCOPED_MEDIA_INDEXES.clear()
+    if remove_disk_cache:
+        clear_media_cache()
+
+
 def media_index_for_roots(roots: Sequence[Path]) -> MediaFileIndex:
     resolved_roots = dedupe_existing_roots(roots)
     key = tuple(str(root) for root in resolved_roots)
@@ -1094,17 +1148,32 @@ class MediaFileIndex:
         return [match for _, _, _, match in scored[:SEARCH_LIMIT]]
 
     def load(self) -> list[Path]:
+        return self.load_cached(force_refresh=False)
+
+    def refresh(self) -> list[Path]:
+        self.paths = None
+        self.directories = None
+        return self.load_cached(force_refresh=True)
+
+    def load_cached(self, *, force_refresh: bool) -> list[Path]:
         if self.paths is not None:
             return self.paths
 
         roots = dedupe_existing_roots(self.roots) if self.roots else search_roots()
         self.loaded_roots = roots
+        if not force_refresh:
+            cached_paths = load_media_cache(roots)
+            if cached_paths is not None:
+                self.paths = cached_paths
+                return cached_paths
+
         rg = shutil.which("rg")
         if rg:
             paths = index_media_files_with_rg(rg, roots)
         else:
             paths = index_media_files_with_python(roots)
 
+        write_media_cache(roots, paths)
         self.paths = paths
         return paths
 
@@ -1138,6 +1207,63 @@ def path_is_relative_to(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def media_cache_path(roots: Sequence[Path]) -> Path:
+    cache_key = {
+        "version": SEARCH_CACHE_VERSION,
+        "roots": [str(root) for root in roots],
+        "extensions": sorted(AUDIO_EXTENSIONS),
+        "excluded": sorted(SEARCH_EXCLUDE_DIRS),
+    }
+    encoded = json.dumps(cache_key, sort_keys=True, separators=(",", ":")).encode()
+    digest = hashlib.sha256(encoded).hexdigest()[:16]
+    return CACHE_DIR / f"media-index-{digest}.json"
+
+
+def load_media_cache(roots: Sequence[Path]) -> list[Path] | None:
+    path = media_cache_path(roots)
+    try:
+        with path.open("r", encoding="utf-8") as cache_file:
+            data = json.load(cache_file)
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+
+    if data.get("version") != SEARCH_CACHE_VERSION:
+        return None
+    if data.get("roots") != [str(root) for root in roots]:
+        return None
+
+    raw_paths = data.get("paths")
+    if not isinstance(raw_paths, list):
+        return None
+    return [Path(raw_path) for raw_path in raw_paths if isinstance(raw_path, str)]
+
+
+def write_media_cache(roots: Sequence[Path], paths: Sequence[Path]) -> None:
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_path = media_cache_path(roots)
+        temporary_path = cache_path.with_suffix(".tmp")
+        data = {
+            "version": SEARCH_CACHE_VERSION,
+            "created_at": time.time(),
+            "roots": [str(root) for root in roots],
+            "paths": [str(path) for path in paths],
+        }
+        with temporary_path.open("w", encoding="utf-8") as cache_file:
+            json.dump(data, cache_file, separators=(",", ":"))
+        temporary_path.replace(cache_path)
+    except OSError:
+        return
+
+
+def clear_media_cache() -> None:
+    try:
+        for path in CACHE_DIR.glob("media-index-*.json"):
+            path.unlink(missing_ok=True)
+    except OSError:
+        return
 
 
 def compile_search_regex(pattern: str) -> re.Pattern[str] | None:
@@ -1214,9 +1340,13 @@ def is_subsequence(needle: str, haystack: str) -> bool:
 def search_roots() -> list[Path]:
     configured = os.environ.get("STEMS_SEARCH_ROOTS")
     if configured:
-        roots = [Path(os.path.expanduser(part)) for part in configured.split(os.pathsep) if part]
+        roots = [
+            Path(os.path.expandvars(os.path.expanduser(part)))
+            for part in configured.split(os.pathsep)
+            if part
+        ]
     else:
-        roots = [Path("/")]
+        roots = [Path.home()]
     return dedupe_existing_roots(roots)
 
 
