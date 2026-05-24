@@ -133,7 +133,18 @@ AUDIO_EXTENSIONS = {
     ".wma",
 }
 
-COMMANDS = {"separate", "interactive", "i", "doctor", "models", "presets"}
+COMMANDS = {
+    "separate",
+    "interactive",
+    "i",
+    "doctor",
+    "models",
+    "presets",
+    "web",
+    "app",
+    "ui",
+    "frontend",
+}
 SLASH_COMMANDS = {
     "/help": "Show interactive help and input syntax.",
     "/doctor": "Check ffmpeg, GPU, Demucs, and audio-separator.",
@@ -214,6 +225,7 @@ def _(event: object) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
+        print_running_frontend_hint()
         args = ["interactive"]
     if args and args[0] not in COMMANDS and args[0] not in {"-h", "--help"}:
         args.insert(0, "separate")
@@ -298,7 +310,36 @@ def build_parser() -> argparse.ArgumentParser:
     presets = subparsers.add_parser("presets", help="Show available presets")
     presets.set_defaults(func=cmd_presets)
 
+    web = subparsers.add_parser(
+        "web",
+        aliases=["app", "ui", "frontend"],
+        help="Start the local React web interface",
+    )
+    web.add_argument("--host", default="127.0.0.1", help="Host to bind. Default: 127.0.0.1")
+    web.add_argument("--port", type=int, default=8765, help="Port to bind. Default: 8765")
+    web.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not open the app in a browser automatically.",
+    )
+    web.set_defaults(func=cmd_web)
+
     return parser
+
+
+def cmd_web(ns: argparse.Namespace) -> int:
+    from audio_stems.web import run_web_app
+
+    return run_web_app(host=ns.host, port=ns.port, open_browser=not ns.no_open)
+
+
+def print_running_frontend_hint() -> None:
+    from audio_stems.web import frontend_url_if_running
+
+    url = frontend_url_if_running()
+    if url:
+        print(f"Frontend app already running: {url}")
+        print()
 
 
 def cmd_separate(ns: argparse.Namespace) -> int:

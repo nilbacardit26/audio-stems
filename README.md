@@ -190,6 +190,68 @@ audio-separator model filename when you want a specific model.
 
 Outputs go to `separated/` by default.
 
+## Local Web App
+
+The source checkout also includes a React/TypeScript interface for the same
+local workflow. It talks to a small local Python API, so separation still runs
+on this machine through Demucs or the optional audio-separator command.
+
+![Audio Stems local web app](docs/screenshots/audio-stems-main.png)
+
+From a source checkout, the easiest command is:
+
+```bash
+uv run stems ui
+```
+
+It builds the React assets on first run, starts the local server, and opens the
+browser. The command is idempotent: if the app is already running on the target
+port, it opens the existing app instead of failing with an address-in-use error.
+
+Aliases:
+
+```bash
+uv run stems web
+uv run stems app
+uv run stems ui
+uv run stems frontend
+```
+
+If you have installed the user commands:
+
+```bash
+./scripts/install-user-command.sh
+stems ui
+stems-app
+```
+
+Use `--no-open` when you only want to start the server:
+
+```bash
+uv run stems app --no-open --port 8765
+```
+
+When the local web app is already running, the plain interactive command prints
+the frontend URL before entering the CLI wizard:
+
+```bash
+stems
+```
+
+The app includes:
+
+- local runtime diagnostics for `ffmpeg`, GPU, Demucs, and audio-separator
+- indexed media search matching the interactive CLI search behavior
+- a local folder browser for choosing audio files without typing paths
+- the same presets as the CLI: `demucs`, `fast`, `vocals`, `six`, and
+  `separator`
+- Demucs device selection and audio-separator model/format options
+- direct `Start separation` execution with live process output
+
+The screenshots use sanitized demo paths and filenames.
+
+![Audio Stems folder browser](docs/screenshots/audio-stems-browser.png)
+
 ## Optional audio-separator setup
 
 Install the optional engine when you want to try UVR/MDX/RoFormer models:

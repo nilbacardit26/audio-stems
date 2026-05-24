@@ -4,6 +4,7 @@ set -euo pipefail
 APP_HOME="$(cd "$(dirname "$0")/.." && pwd)"
 BIN_DIR="${HOME}/.local/bin"
 TARGET="${BIN_DIR}/stems"
+APP_TARGET="${BIN_DIR}/stems-app"
 
 mkdir -p "${BIN_DIR}"
 
@@ -31,5 +32,17 @@ EOF
 
 chmod 755 "${TARGET}"
 
+cat > "${APP_TARGET}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_HOME="${APP_HOME}"
+exec "\${APP_HOME}/scripts/run-web.sh" "\$@"
+EOF
+
+chmod 755 "${APP_TARGET}"
+
 echo "Installed ${TARGET}"
+echo "Installed ${APP_TARGET}"
 echo "Try: stems"
+echo "Try: stems-app"
