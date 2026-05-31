@@ -409,8 +409,7 @@ label span {
   padding: 0.35rem 0.65rem;
 }
 
-.status-badge.queued,
-.status-badge.running {
+.status-badge.active {
   background: #eef5f2;
   color: #1f4f48;
 }

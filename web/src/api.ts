@@ -9,6 +9,7 @@ import type {
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
+    cache: 'no-store',
     headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     ...init,
   });

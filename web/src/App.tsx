@@ -6,6 +6,7 @@ import { JobConsole } from './components/JobConsole';
 import { PresetSelector } from './components/PresetSelector';
 import { RuntimePanel } from './components/RuntimePanel';
 import { StartPanel } from './components/StartPanel';
+import { isTerminalJobStatus } from './jobStatus';
 import type { PresetsResponse, RuntimeStatus, SeparationForm, SeparationJob } from './types';
 
 const emptyPresets: PresetsResponse = {
@@ -90,23 +91,46 @@ export function App() {
   }
 
   useEffect(() => {
-    if (!job || job.status === 'completed' || job.status === 'failed') {
+    if (!job || isTerminalJobStatus(job.status)) {
       return;
     }
 
-    const timer = window.setInterval(() => {
-      getJob(job.id)
+    let cancelled = false;
+    let requestInFlight = false;
+    const jobId = job.id;
+
+    const poll = () => {
+      if (requestInFlight) {
+        return;
+      }
+      requestInFlight = true;
+      getJob(jobId)
         .then((next) => {
-          setJob(next);
+          if (cancelled) {
+            return;
+          }
+          setJob((current) => (current?.id === jobId ? next : current));
           setJobError(null);
         })
         .catch((err: unknown) => {
+          if (cancelled) {
+            return;
+          }
           setJobError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          requestInFlight = false;
         });
-    }, 1200);
+    };
 
-    return () => window.clearInterval(timer);
-  }, [job]);
+    poll();
+    const timer = window.setInterval(poll, 1200);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [job?.id, job?.status]);
 
   return (
     <main className="app-shell">

@@ -38,8 +38,13 @@ const runtimePayload = {
   ready: true,
 };
 
+let jobPollResponses: Array<Partial<ReturnType<typeof jobPayload>>>;
+let jobPollCount: number;
+
 describe('App', () => {
   beforeEach(() => {
+    jobPollResponses = [jobPayload('completed')];
+    jobPollCount = 0;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -62,17 +67,11 @@ describe('App', () => {
           });
         }
         if (url === '/api/jobs' && init?.method === 'POST') {
-          return jsonResponse({
-            id: 'job-1',
-            status: 'queued',
-            command: ['demucs', '/music/song.wav'],
-            commandLine: '+ demucs /music/song.wav',
-            output: [],
-            returncode: null,
-            startedAt: 1,
-            finishedAt: null,
-            error: null,
-          });
+          return jsonResponse(jobPayload('queued'));
+        }
+        if (url === '/api/jobs/job-1') {
+          jobPollCount += 1;
+          return jsonResponse(jobPollResponses.shift() ?? jobPayload('completed'));
         }
         throw new Error(`Unhandled request: ${url}`);
       }),
@@ -97,6 +96,24 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByText('+ demucs /music/song.wav')).toBeInTheDocument());
   });
 
+  it('marks synced jobs complete instead of leaving them active', async () => {
+    jobPollResponses = [
+      jobPayload('running', { output: ['Downloading source'] }),
+      jobPayload('synced', { output: ['Downloaded source', 'Synced to storage'], finishedAt: 2, returncode: 0 }),
+    ];
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(await screen.findByLabelText('Audio file path'), '/music/song.wav');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: 'Start separation' }));
+
+    const syncedBadge = await screen.findByText('synced');
+    expect(syncedBadge.closest('.status-badge')).toHaveClass('completed');
+    expect(screen.getByText(/Synced to storage/)).toBeInTheDocument();
+    expect(jobPollCount).toBe(2);
+  });
+
   it('adds a file from the local folder browser', async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -107,6 +124,21 @@ describe('App', () => {
     expect(screen.getByText('/music/song.wav')).toBeInTheDocument();
   });
 });
+
+function jobPayload(status: string, overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 'job-1',
+    status,
+    command: ['demucs', '/music/song.wav'],
+    commandLine: '+ demucs /music/song.wav',
+    output: [],
+    returncode: null,
+    startedAt: 1,
+    finishedAt: null,
+    error: null,
+    ...overrides,
+  };
+}
 
 function jsonResponse(body: unknown) {
   return Promise.resolve(

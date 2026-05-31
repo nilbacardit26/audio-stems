@@ -66,7 +66,19 @@ export type SeparationForm = {
   format: 'WAV' | 'FLAC' | 'MP3';
 };
 
-export type JobStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type JobStatus =
+  | 'queued'
+  | 'pending_resources'
+  | 'running'
+  | 'retrying'
+  | 'syncing'
+  | 'completed'
+  | 'synced'
+  | 'success'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
+  | (string & {});
 
 export type SeparationJob = {
   id: string;

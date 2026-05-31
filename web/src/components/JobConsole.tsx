@@ -1,4 +1,5 @@
 import { CircleCheck, CircleDashed, CircleX, LoaderCircle } from 'lucide-react';
+import { isTerminalJobStatus, jobStatusClass } from '../jobStatus';
 import type { SeparationJob } from '../types';
 
 type Props = {
@@ -21,13 +22,14 @@ export function JobConsole({ job }: Props) {
   }
 
   const Icon =
-    job.status === 'completed'
+    isTerminalJobStatus(job.status) && jobStatusClass(job.status) === 'completed'
       ? CircleCheck
-      : job.status === 'failed'
+      : jobStatusClass(job.status) === 'failed'
         ? CircleX
         : job.status === 'running'
           ? LoaderCircle
           : CircleDashed;
+  const statusClass = jobStatusClass(job.status);
 
   return (
     <section className="console-panel">
@@ -36,7 +38,7 @@ export function JobConsole({ job }: Props) {
           <h2>Run output</h2>
           <p>{job.commandLine}</p>
         </div>
-        <span className={`status-badge ${job.status}`}>
+        <span className={`status-badge ${statusClass}`}>
           <Icon size={17} />
           {job.status}
         </span>
