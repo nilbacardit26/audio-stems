@@ -98,8 +98,8 @@ describe('App', () => {
 
   it('marks synced jobs complete instead of leaving them active', async () => {
     jobPollResponses = [
-      jobPayload('running', { output: ['Downloading source'] }),
-      jobPayload('synced', { output: ['Downloaded source', 'Synced to storage'], finishedAt: 2, returncode: 0 }),
+      jobPayload('running', { progress: 37, output: ['Downloading source'] }),
+      jobPayload('synced', { progress: 100, output: ['Downloaded source', 'Synced to storage'], finishedAt: 2, returncode: 0 }),
     ];
     const user = userEvent.setup();
     render(<App />);
@@ -110,8 +110,33 @@ describe('App', () => {
 
     const syncedBadge = await screen.findByText('synced');
     expect(syncedBadge.closest('.status-badge')).toHaveClass('completed');
+    expect(screen.getByRole('progressbar', { name: 'Job progress' })).toHaveAttribute('aria-valuenow', '100');
     expect(screen.getByText(/Synced to storage/)).toBeInTheDocument();
     expect(jobPollCount).toBe(2);
+  });
+
+  it('updates the progress bar while a job is running', async () => {
+    jobPollResponses = [
+      jobPayload('running', { progress: 12, output: ['Preparing'] }),
+      jobPayload('running', { progress: 64, output: ['Preparing', '64% separated'] }),
+      jobPayload('completed', { progress: 100, output: ['Done'], finishedAt: 2, returncode: 0 }),
+    ];
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(await screen.findByLabelText('Audio file path'), '/music/song.wav');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: 'Start separation' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('progressbar', { name: 'Job progress' })).toHaveAttribute('aria-valuenow', '64');
+    });
+    await waitFor(
+      () => {
+        expect(screen.getByRole('progressbar', { name: 'Job progress' })).toHaveAttribute('aria-valuenow', '100');
+      },
+      { timeout: 1800 },
+    );
   });
 
   it('adds a file from the local folder browser', async () => {
@@ -129,6 +154,7 @@ function jobPayload(status: string, overrides: Partial<Record<string, unknown>> 
   return {
     id: 'job-1',
     status,
+    progress: 0,
     command: ['demucs', '/music/song.wav'],
     commandLine: '+ demucs /music/song.wav',
     output: [],

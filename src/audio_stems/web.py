@@ -5,6 +5,7 @@ import errno
 import json
 import mimetypes
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -38,6 +39,7 @@ class SeparationJob:
     id: str
     command: list[str]
     status: str = "queued"
+    progress: int = 0
     output: list[str] = field(default_factory=list)
     returncode: int | None = None
     started_at: float = field(default_factory=time.time)
@@ -397,6 +399,7 @@ def job_payload(job: SeparationJob) -> dict[str, Any]:
     return {
         "id": job.id,
         "status": job.status,
+        "progress": job.progress,
         "command": job.command,
         "commandLine": command_line(job.command),
         "output": job.output,
@@ -480,7 +483,7 @@ def create_job(command: list[str]) -> SeparationJob:
 
 
 def run_job(job: SeparationJob) -> None:
-    update_job(job.id, status="running")
+    update_job(job.id, status="running", progress=5)
     try:
         process = subprocess.Popen(
             job.command,
@@ -493,6 +496,7 @@ def run_job(job: SeparationJob) -> None:
         update_job(
             job.id,
             status="failed",
+            progress=100,
             returncode=127,
             finished_at=time.time(),
             error=f"Missing executable: {exc.filename}",
@@ -507,21 +511,39 @@ def run_job(job: SeparationJob) -> None:
     update_job(
         job.id,
         status="completed" if returncode == 0 else "failed",
+        progress=100 if returncode == 0 else None,
         returncode=returncode,
         finished_at=time.time(),
     )
+
+
+PROGRESS_PATTERN = re.compile(r"(?<!\d)(100(?:\.0+)?|[1-9]?\d(?:\.\d+)?)\s*%")
+
+
+def progress_from_output_line(line: str) -> int | None:
+    match = PROGRESS_PATTERN.search(line)
+    if not match:
+        return None
+    return min(99, max(0, int(float(match.group(1)))))
 
 
 def append_job_output(job_id: str, line: str) -> None:
     with JOBS_LOCK:
         job = JOBS[job_id]
         job.output.append(line)
+        parsed_progress = progress_from_output_line(line)
+        if parsed_progress is not None:
+            job.progress = max(job.progress, parsed_progress)
+        elif job.status == "running":
+            job.progress = min(95, max(5, job.progress + 1))
 
 
 def update_job(job_id: str, **changes: Any) -> None:
     with JOBS_LOCK:
         job = JOBS[job_id]
         for name, value in changes.items():
+            if name == "progress" and value is None:
+                continue
             setattr(job, name, value)
 
 

@@ -424,6 +424,42 @@ label span {
   color: #9f2f1f;
 }
 
+.progress-meter {
+  align-items: center;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: minmax(0, 1fr) 3.2rem;
+  margin-bottom: 0.8rem;
+}
+
+.progress-track {
+  background: #dce2df;
+  border-radius: 999px;
+  height: 0.72rem;
+  overflow: hidden;
+}
+
+.progress-track span {
+  background: #1f4f48;
+  display: block;
+  height: 100%;
+  transition: width 180ms ease;
+}
+
+.progress-meter.completed .progress-track span {
+  background: #1f6b42;
+}
+
+.progress-meter.failed .progress-track span {
+  background: #b63828;
+}
+
+.progress-meter strong {
+  color: #18202f;
+  font-size: 0.9rem;
+  text-align: right;
+}
+
 .console-panel {
   margin-top: 1rem;
 }

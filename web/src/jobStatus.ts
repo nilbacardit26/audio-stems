@@ -14,3 +14,12 @@ export function jobStatusClass(status: string) {
   }
   return 'active';
 }
+
+export function normalizedJobProgress(progress: number | null | undefined, status: string) {
+  if (status === 'completed' || status === 'synced' || status === 'success' || status === 'done') {
+    return 100;
+  }
+  const fallback = status === 'queued' ? 0 : 5;
+  const value = Number.isFinite(progress) ? Number(progress) : fallback;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}

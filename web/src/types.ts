@@ -83,6 +83,7 @@ export type JobStatus =
 export type SeparationJob = {
   id: string;
   status: JobStatus;
+  progress: number;
   command: string[];
   commandLine: string;
   output: string[];

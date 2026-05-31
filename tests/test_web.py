@@ -5,12 +5,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from audio_stems.web import (
+    SeparationJob,
     browse_payload,
     command_line,
     frontend_url,
     health_payload,
+    job_payload,
     payload_to_namespace,
     presets_payload,
+    progress_from_output_line,
     validate_run_inputs,
 )
 
@@ -79,6 +82,16 @@ class WebApiTests(unittest.TestCase):
 
     def test_health_payload_identifies_app(self) -> None:
         self.assertEqual(health_payload(), {"app": "audio-stems", "status": "ok"})
+
+    def test_job_payload_includes_progress(self) -> None:
+        payload = job_payload(SeparationJob(id="job-1", command=["demucs"], progress=42))
+
+        self.assertEqual(payload["progress"], 42)
+
+    def test_progress_from_output_line_parses_percent(self) -> None:
+        self.assertEqual(progress_from_output_line("Separating 37.5%|###"), 37)
+        self.assertEqual(progress_from_output_line("done 100%"), 99)
+        self.assertIsNone(progress_from_output_line("no progress here"))
 
     def test_frontend_url_uses_loopback_for_wildcard_host(self) -> None:
         self.assertEqual(frontend_url("0.0.0.0", 8765), "http://127.0.0.1:8765")
